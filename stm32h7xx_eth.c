@@ -1,6 +1,6 @@
 /** Based on stm32h7xx_hal_eth.c from STM32H7 HAL lib v.1.10 (Cube H7 package v 1.9.0)
   ******************************************************************************
-  * @file    stm32h7xx_hal_eth.c
+  * @file    stm32h7xx_eth.c
   * @author  MCD Application Team
   * @brief   ETH HAL module driver.
   *          This file provides firmware functions to manage the following
@@ -9,6 +9,8 @@
   *           + IO operation functions
   *           + Peripheral Control functions
   *           + Peripheral State and Errors functions
+  *           Management of DMA descriptors and buffers moved to network stack
+  *           specific layer (functions and structures with ETHx prefix).
   *
   @verbatim
   ==============================================================================
@@ -24,7 +26,7 @@
 
       (#)Call HAL_ETH_Init() API to initialize the Ethernet peripheral (MAC, DMA, ...)
 
-      (#)Initialize the ETH low level resources through the HAL_ETH_MspInit() API:
+      (#)Provide HAL_ETH_MspInit() function to Initialize the ETH low level resources,
           (##) Enable the Ethernet interface clock using
                 (+++)  __HAL_RCC_ETH1MAC_CLK_ENABLE()
                 (+++)  __HAL_RCC_ETH1TX_CLK_ENABLE()
@@ -32,7 +34,9 @@
 
           (##) Initialize the related GPIO clocks
           (##) Configure Ethernet pinout
-          (##) Configure Ethernet NVIC interrupt (in Interrupt mode)
+          (##) Configure Ethernet NVIC interrupt (if using interrupt mode)
+
+      (#) Provide memory for DMA descriptors and I/O buffers
 
       (#) Ethernet data reception is asynchronous, so call the following API
           to start the listening mode:
@@ -45,16 +49,16 @@
                end of transfer interrupts are enabled in this mode,
                HAL_ETH_RxCpltCallback() will be executed when an Ethernet packet is received
 
-      (#) When data is received (HAL_ETH_IsRxDataAvailable() returns 1 or Rx interrupt
+      (#) When data is received (ETHx_IsRxDataAvailable() returns 1 or Rx interrupt
           occurred), user can call the following APIs to get received data:
-          (##) HAL_ETH_GetRxDataBuffer(): Get buffer address of received frame
-          (##) HAL_ETH_GetRxDataLength(): Get received frame length
-          (##) HAL_ETH_GetRxDataInfo(): Get received frame additional info,
+          (##) ETHx_GetRxDataBuffer(): Get buffer address of received frame
+          (##) ETHx_GetRxDataLength(): Get received frame length
+          (##) ETHx_GetRxDataInfo(): Get received frame additional info,
                please refer to ETH_RxPacketInfo typedef structure
 
       (#) For transmission path, two APIs are available:
-         (##) HAL_ETH_Transmit(): Transmit an ETH frame in blocking mode
-         (##) HAL_ETH_Transmit_IT(): Transmit an ETH frame in interrupt mode,
+         (##) ETHx_Transmit(): Transmit an ETH frame in blocking mode
+         (##) ETHx_Transmit_IT(): Transmit an ETH frame in interrupt mode,
               HAL_ETH_TxCpltCallback() will be executed when end of transfer occur
 
       (#) Communication with an external PHY device:
@@ -207,7 +211,7 @@ static void ETH_SetDMAConfig(ETH_HandleTypeDef *heth,  ETH_DMAConfigTypeDef *dma
 static void ETH_MACDMAConfig(ETH_HandleTypeDef *heth);
 static void ETH_DMATxDescListInit(ETH_HandleTypeDef *heth);
 static void ETH_DMARxDescListInit(ETH_HandleTypeDef *heth);
-//? static uint32_t ETH_Prepare_Tx_Descriptors(ETH_HandleTypeDef *heth, ETH_TxPacketConfig *pTxConfig, uint32_t ItMode);
+//->MW static uint32_t ETH_Prepare_Tx_Descriptors(ETH_HandleTypeDef *heth, ETH_TxPacketConfig *pTxConfig, uint32_t ItMode);
 
 #if (USE_HAL_ETH_REGISTER_CALLBACKS == 1)
 static void ETH_InitCallbacksToDefault(ETH_HandleTypeDef *heth);
@@ -350,7 +354,7 @@ HAL_StatusTypeDef HAL_ETH_Init(ETH_HandleTypeDef *heth)
 
   MODIFY_REG(heth->Instance->DMACCR, ETH_DMACCR_DSL, ((ETH_DESC_EXTRA_SIZE + 3) / 4) << ETH_DMACCR_DSL_Pos);
 
-  /* Set Receive Buffers Length (must be a multiple of 4) */
+  /* Set Receive Buffers Length (must be a multiple of 4 or cacheline size when cache enabled) */
   if ((heth->Init.RxBuffLen % 0x4U) != 0x0U)
   {
     /* Set Error Code */
@@ -2085,7 +2089,7 @@ static void ETH_MAC_MDIO_ClkConfig(ETH_HandleTypeDef *heth)
 static void ETH_DMATxDescListInit(ETH_HandleTypeDef *heth)
 {
   /* Set Transmit Descriptor Ring Length */
-  WRITE_REG(heth->Instance->DMACTDRLR, heth->Init.TxDescCnt -1);
+  WRITE_REG(heth->Instance->DMACTDRLR, heth->Init.TxDescCnt - 1);
 
   /* Set Transmit Descriptor List Address */
   WRITE_REG(heth->Instance->DMACTDLAR, (uint32_t) heth->Init.TxDesc);

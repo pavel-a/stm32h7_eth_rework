@@ -13,11 +13,7 @@
 
 #define ETH_RX_DESC_CNT         4U
 
-
-#define ETH_RX_BUFFER_SIZE     (1536UL)
-
-
-/* Extra size reserved in descriptors; both RX and TX */
+/* Size of extension of DMA descriptors; both RX and TX */
 #define ETH_DESC_EXTRA_SIZE     8 /* 2 words */
 
 /* MAC address */

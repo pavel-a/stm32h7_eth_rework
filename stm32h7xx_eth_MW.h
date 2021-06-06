@@ -37,6 +37,10 @@
  #define ETH_RX_DESC_CNT         4U
 #endif
 
+#define ETH_RX_BUFFER_SIZE     ((ETH_MAX_PACKET_SIZE + 31U) & ~31U)//(1536UL)
+// RX buffer size = ETH_MAX_PACKET_SIZE rounded up to cacheline (Standard size, no jumbo)
+
+
 /**
   * @brief  Extended ETH DMA Descriptor structure definition
   * NOTE: size of extension is same for RX and TX descriptors
@@ -110,7 +114,7 @@ typedef struct
 
 /* Exported functions --------------------------------------------------------*/
 
-HAL_StatusTypeDef ETHx_DescAssignMemory(ETH_HandleTypeDef *heth, uint32_t Index, uint8_t *pBuffer1,uint8_t *pBuffer2);
+HAL_StatusTypeDef ETHx_DescAssignMemory(ETH_HandleTypeDef *heth, uint32_t Index, uint8_t *pBuffer1, uint8_t *pBuffer2);
 uint8_t           ETHx_IsRxDataAvailable(ETH_HandleTypeDef *heth);
 HAL_StatusTypeDef ETHx_GetRxDataBuffer(ETH_HandleTypeDef *heth, ETH_BufferTypeDef *RxBuffer);
 HAL_StatusTypeDef ETHx_GetRxDataLength(ETH_HandleTypeDef *heth, uint32_t *Length);
