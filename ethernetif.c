@@ -24,6 +24,8 @@
 #include "BSP_MPU_defs.h"
 #include "../Components/lan8742/lan8742.h" /* PHY on EVB! */
 
+extern uint8_t BSP_alloc_MPU_region(char who);
+
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
 /* Network interface name */
@@ -210,7 +212,7 @@ static err_enum_t low_level_init(struct netif *netif, const uint8_t *macaddress)
   * @brief  Configure the MPU
   * @param  None
   * @retval None
-  * @note Physical addresses for regions below must be defined in the link script!
+  * @note Physical addresses for regions below must be as defined in the link script!
   */
 static void MPU_Config_for_ETH(void)
 {
@@ -229,11 +231,8 @@ static void MPU_Config_for_ETH(void)
   // https://community.st.com/s/article/How-to-create-project-for-STM32H7-with-Ethernet-and-LwIP-stack-working
   // Region N = 32KB at 0x30040000 (~16KB for RX, ~16 KB 0x30044000 for TX, LwIP pool )
   // Region N+1 overlapping over N : 256 bytes for DMA descriptors
-  static const uint8_t reg_start_n = MPU_REGION_NUMBER0;
-
-  MPU_InitStruct.Number = reg_start_n;
-  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
-  MPU_InitStruct.BaseAddress = 0x30040000;
+  MPU_InitStruct.Number = BSP_alloc_MPU_region('E');
+  MPU_InitStruct.BaseAddress = 0x30040000;  // ORIGIN(SRAM_D2ETH) in link script
   MPU_InitStruct.Size = MPU_REGION_SIZE_32KB;
   //MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
   //MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
@@ -243,16 +242,16 @@ static void MPU_Config_for_ETH(void)
   MPU_InitStruct.SubRegionDisable = 0x00;
   MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
   MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
   /* Configure the MPU attributes as Device not cacheable
      for ETH DMA descriptors */
-  MPU_InitStruct.Number = reg_start_n + 1;
-  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
-  MPU_InitStruct.BaseAddress = 0x30040000;  // <<< TODO check the address, size against ^^^
+  MPU_InitStruct.Number = BSP_alloc_MPU_region('e'); //$$$ verify that reg. number == previous+1
+  MPU_InitStruct.BaseAddress = 0x30040000;  // overlaps previous, so has priority
   MPU_InitStruct.Size = MPU_REGION_SIZE_256B;
-  STATIC_ASSERT(256 >= (ETH_TX_DESC_CNT+ETH_RX_DESC_CNT)*sizeof(ETH_DMADescTypeDef), "increase MPU region size");
+  STATIC_ASSERT(256 >= (ETH_TX_DESC_CNT+ETH_RX_DESC_CNT)*sizeof(ETH_DMADescTypeDef), "increase MPU region size for ETH descriptors");
   //MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
   //MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
   //MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
@@ -261,6 +260,7 @@ static void MPU_Config_for_ETH(void)
   MPU_InitStruct.SubRegionDisable = 0x00;
   MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
   MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
@@ -349,6 +349,7 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
   }
 
   TxConfig.Length = framelen;
+//$$$$ TODO pass length in transmit() ??
   
   HAL_StatusTypeDef st =
   ETHx_Transmit(&EthHandle, &TxConfig, Txbuffer, ETH_DMA_TRANSMIT_TIMEOUT);
