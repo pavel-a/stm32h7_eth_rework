@@ -42,6 +42,8 @@
 
 #include "stm32h7xx_eth_MW.h"
 
+#include <string.h>
+
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
 /* Private macros ------------------------------------------------------------*/
@@ -67,8 +69,6 @@
 
 /* Private function prototypes -----------------------------------------------*/
 
-static void ETHx_DMATxDescListInit(ETH_HandleTypeDef *heth);
-static void ETHx_DMARxDescListInit(ETH_HandleTypeDef *heth);
 static uint32_t ETHx_Prepare_Tx_Descriptors(ETH_HandleTypeDef *heth, ETH_TxPacketConfig *pTxConfig, ETH_BufferTypeDef *txbuffer, uint32_t ItMode);
 
 // Static data - pa03 TODO put in some context struct -> link to heth
@@ -151,6 +151,7 @@ HAL_StatusTypeDef ETHx_Stop_IT(ETH_HandleTypeDef *heth)
   * @param  heth: pointer to a ETH_HandleTypeDef structure that contains
   *         the configuration information for ETHERNET module
   * @param  pTxConfig: Hold the configuration of packet to be transmitted
+  * @param  txbuffer : TX buffers chain to be transmitted
   * @param  Timeout: timeout value
   * @retval HAL status
   */
@@ -159,7 +160,7 @@ HAL_StatusTypeDef ETHx_Transmit(ETH_HandleTypeDef *heth, ETH_TxPacketConfig *pTx
   uint32_t tickstart;
   const ETHx_DMADescTypeDef *dmatxdesc;
 
-  if(pTxConfig == NULL)
+  if(pTxConfig == NULL || txbuffer == NULL)
   {
     heth->ErrorCode |= HAL_ETH_ERROR_PARAM;
     return HAL_ERROR;
@@ -168,6 +169,7 @@ HAL_StatusTypeDef ETHx_Transmit(ETH_HandleTypeDef *heth, ETH_TxPacketConfig *pTx
   if(heth->gState == HAL_ETH_STATE_READY)
   {
     /* Config DMA Tx descriptor by Tx Packet info */
+    /* Assume TX DMA is idle else race can occur! pa01 */
     if (ETHx_Prepare_Tx_Descriptors(heth, pTxConfig, txbuffer, 0) != HAL_ETH_ERROR_NONE)
     {
       /* Set the ETH error code */
@@ -238,6 +240,7 @@ HAL_StatusTypeDef ETHx_Transmit_IT(ETH_HandleTypeDef *heth, ETH_TxPacketConfig *
   if(heth->gState == HAL_ETH_STATE_READY)
   {
     /* Config DMA Tx descriptor by Tx Packet info */
+    /* Assume TX DMA is idle else race can occur! pa01 */
     if (ETHx_Prepare_Tx_Descriptors(heth, pTxConfig, txbuffer, 1) != HAL_ETH_ERROR_NONE)
     {
       heth->ErrorCode |= HAL_ETH_ERROR_BUSY;
@@ -666,68 +669,6 @@ HAL_StatusTypeDef ETHx_BuildRxDescriptors(ETH_HandleTypeDef *heth)
 }
 
 /**
-  * @brief  Initializes the DMA Tx descriptors.
-  *         called by HAL_ETH_Init() API.
-  * @param  heth: pointer to a ETH_HandleTypeDef structure that contains
-  *         the configuration information for ETHERNET module
-  * @retval None
-  */
-static void ETHx_DMATxDescListInit(ETH_HandleTypeDef *heth)
-{
-  ETHx_DMADescTypeDef *dmatxdesc;
-  uint32_t i;
-
-  /* Fill each DMATxDesc descriptor with the right values */
-  for(i=0; i < (uint32_t)ETH_TX_DESC_CNT; i++)
-  {
-    dmatxdesc = (ETHx_DMADescTypeDef *)&heth->Init.TxDesc[i];
-
-    WRITE_REG(dmatxdesc->DESC0, 0x0);
-    WRITE_REG(dmatxdesc->DESC1, 0x0);
-    WRITE_REG(dmatxdesc->DESC2, 0x0);
-    WRITE_REG(dmatxdesc->DESC3, 0x0);
-
-    g_TxDescList.TxDesc[i] = dmatxdesc;
-  }
-
-  g_TxDescList.CurTxDesc = 0;
-}
-
-/**
-  * @brief  Initializes the DMA Rx descriptors in chain mode.
-  *         called by HAL_ETH_Init() API.
-  * @param  heth: pointer to a ETH_HandleTypeDef structure that contains
-  *         the configuration information for ETHERNET module
-  * @retval None
-  */
-static void ETHx_DMARxDescListInit(ETH_HandleTypeDef *heth)
-{
-  ETHx_DMADescTypeDef *dmarxdesc;
-  uint32_t i;
-
-  for(i = 0; i < (uint32_t)ETH_RX_DESC_CNT; i++)
-  {
-    dmarxdesc = (ETHx_DMADescTypeDef *)&heth->Init.RxDesc[i];
-
-    WRITE_REG(dmarxdesc->DESC0, 0x0);
-    WRITE_REG(dmarxdesc->DESC1, 0x0);
-    WRITE_REG(dmarxdesc->DESC2, 0x0);
-    WRITE_REG(dmarxdesc->DESC3, 0x0);
-    WRITE_REG(dmarxdesc->BackupAddr0, 0x0);
-    WRITE_REG(dmarxdesc->BackupAddr1, 0x0);
-
-    /* Set Rx descriptors addresses */
-    g_RxDescList.RxDesc[i] = dmarxdesc;
-  }
-
-  g_RxDescList.CurRxDesc = 0;
-  g_RxDescList.FirstAppDesc = 0;
-  g_RxDescList.AppDescNbr = 0;
-  g_RxDescList.ItMode = 0;
-  g_RxDescList.AppContextDesc = 0;
-}
-
-/**
   * @brief  Prepare Tx DMA descriptor before transmission.
   *         called by HAL_ETH_Transmit_IT and HAL_ETH_Transmit_IT() API.
   * @param  heth: pointer to a ETH_HandleTypeDef structure that contains
@@ -916,7 +857,6 @@ static uint32_t ETHx_Prepare_Tx_Descriptors(ETH_HandleTypeDef *heth, ETH_TxPacke
       dmatxdesc = (ETH_DMADescTypeDef *)dmatxdesclist->TxDesc[descidx];
 
       /* clear previous desc own bit */
-      //$$$$ BUGBUG too late! pa01
       for(idx = 0; idx < descnbr; idx ++)
       {
         CLEAR_BIT(dmatxdesc->DESC3, ETH_DMATXNDESCRF_OWN);
@@ -1016,18 +956,49 @@ static uint32_t ETHx_Prepare_Tx_Descriptors(ETH_HandleTypeDef *heth, ETH_TxPacke
 }
 
 
+static void RxDescListInit_(ETH_DMADescTypeDef *a_dmarxdesc, unsigned cnt)
+{
+    // Factored out from ETH_DMARxDescListInit - pa01
+    for (unsigned i = 0; i < cnt; i++)
+    {
+      ETHx_DMADescTypeDef *dmarxdesc = (ETHx_DMADescTypeDef*)&a_dmarxdesc[i];
+      memset(dmarxdesc, 0, sizeof(ETHx_DMADescTypeDef));
+      g_RxDescList.RxDesc[i] = dmarxdesc;
+    }
+
+    g_RxDescList.CurRxDesc = 0;
+    g_RxDescList.FirstAppDesc = 0;
+    g_RxDescList.AppDescNbr = 0;
+    g_RxDescList.ItMode = 0;
+    g_RxDescList.AppContextDesc = 0;
+}
+
+
+static void TxDescListInit_(ETH_DMADescTypeDef *a_dmatxdesc, unsigned cnt)
+{
+    // Factored out from ETH_DMATxDescListInit - pa01
+    for (unsigned i = 0; i < cnt; i++)
+    {
+      ETHx_DMADescTypeDef *dmatxdesc = (ETHx_DMADescTypeDef*)&a_dmatxdesc[i];
+      memset(dmatxdesc, 0, sizeof(ETHx_DMADescTypeDef));
+      g_TxDescList.TxDesc[i] = dmatxdesc;
+    }
+
+    g_TxDescList.CurTxDesc = 0;
+}
+
 // pa03 Initialize "middleware" layer and call HAL_ETH_Init
-// Caller should fill other heth->Init fields!
+// Caller should fill other heth->Init fields! TODO revise
 HAL_StatusTypeDef ETHx_init(ETH_HandleTypeDef *heth)
 {
-    // init g_RxDescList g_TxDescList
-    ETHx_DMATxDescListInit(heth);
-    ETHx_DMARxDescListInit(heth);
-
     heth->Init.RxDescCnt = ETH_RX_DESC_CNT;
     heth->Init.TxDescCnt = ETH_TX_DESC_CNT;
     heth->Init.RxBuffLen = ETH_RX_BUFFER_SIZE;
 
-    /* configure ethernet peripheral (GPIOs, clocks, MAC, DMA) */
+    // Init g_RxDescList, g_TxDescList
+    TxDescListInit_(heth->Init.TxDesc, heth->Init.TxDescCnt);
+    RxDescListInit_(heth->Init.RxDesc, heth->Init.RxDescCnt);
+
+    /* Configure ethernet peripheral (GPIOs, clocks, MAC, DMA) */
     return HAL_ETH_Init(heth);
 }
