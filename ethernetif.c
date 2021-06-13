@@ -348,9 +348,8 @@ static err_t low_level_output(struct netif *netif, struct pbuf *p)
     i++;
   }
 
-  TxConfig.Length = framelen;
-//$$$$ TODO pass length in transmit() ??
-  
+  //- TxConfig.Length = framelen; //pa01 ETHx_Transmit calculates framelen itself!
+
   HAL_StatusTypeDef st =
   ETHx_Transmit(&EthHandle, &TxConfig, Txbuffer, ETH_DMA_TRANSMIT_TIMEOUT);
   if (st != HAL_OK) {

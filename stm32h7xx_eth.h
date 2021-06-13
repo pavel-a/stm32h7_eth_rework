@@ -72,7 +72,7 @@ typedef struct
   uint32_t Attributes;              /*!< Tx packet HW features capabilities.
                                          This parameter can be a combination of @ref ETH_Tx_Packet_Attributes*/
 
-  uint32_t Length;                  /*!< Total packet length   */
+  uint32_t Length;                  /*!< pa01 deprecated DO NOT USE! Total packet length  */
 
   uint32_t SrcAddrCtrl;             /*!< Specifies the source address insertion control.
                                          This parameter can be a value of @ref ETH_Tx_Packet_Source_Addr_Control */

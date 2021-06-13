@@ -733,8 +733,10 @@ static void ETHx_DMARxDescListInit(ETH_HandleTypeDef *heth)
   * @param  heth: pointer to a ETH_HandleTypeDef structure that contains
   *         the configuration information for ETHERNET module
   * @param  pTxConfig: Tx packet configuration
-  * @param  ItMode: Enable or disable Tx EOT interrept
+  * @param  ItMode: Enable or disable Tx EOT interrupt
   * @retval Status
+  * NOTE: assuming TX DMA is not running, else race! - pa01
+  * NOTE: the idea after conversion is that pTxConfig is immutable; all per-TX params passed separately - pa01
   */
 static uint32_t ETHx_Prepare_Tx_Descriptors(ETH_HandleTypeDef *heth, ETH_TxPacketConfig *pTxConfig, ETH_BufferTypeDef *txbuffer, uint32_t ItMode)
 {
@@ -744,6 +746,7 @@ static uint32_t ETHx_Prepare_Tx_Descriptors(ETH_HandleTypeDef *heth, ETH_TxPacke
   uint32_t descnbr = 0, idx;
   ETH_DMADescTypeDef *dmatxdesc = (ETH_DMADescTypeDef *)dmatxdesclist->TxDesc[descidx];
   uint32_t           bd_count = 0;
+  uint32_t framelen = 0; // total frame len +pa01
 
   /* Current Tx Descriptor Owned by DMA: cannot be used by the application  */
   if((READ_BIT(dmatxdesc->DESC3, ETH_DMATXNDESCWBF_OWN) == ETH_DMATXNDESCWBF_OWN) || (dmatxdesclist->PacketAddress[descidx] != NULL))
@@ -825,6 +828,7 @@ static uint32_t ETHx_Prepare_Tx_Descriptors(ETH_HandleTypeDef *heth, ETH_TxPacke
   WRITE_REG(dmatxdesc->DESC0, (uint32_t)txbuffer->buffer);
   /* Set header or buffer 1 Length */
   MODIFY_REG(dmatxdesc->DESC2, ETH_DMATXNDESCRF_B1L, txbuffer->len);
+  framelen += txbuffer->len;
 
   if(txbuffer->next != NULL)
   {
@@ -833,6 +837,12 @@ static uint32_t ETHx_Prepare_Tx_Descriptors(ETH_HandleTypeDef *heth, ETH_TxPacke
     WRITE_REG(dmatxdesc->DESC1, (uint32_t)txbuffer->buffer);
     /* Set buffer 2 Length */
     MODIFY_REG(dmatxdesc->DESC2, ETH_DMATXNDESCRF_B2L, (txbuffer->len << 16));
+    framelen += txbuffer->len;
+    if (txbuffer->next != NULL) {
+        // More than 2 buffers not supported yet see below! -pa01
+        __BKPT(0x40);
+        return HAL_ETH_ERROR_PARAM;
+    }
   }
   else
   {
@@ -846,13 +856,13 @@ static uint32_t ETHx_Prepare_Tx_Descriptors(ETH_HandleTypeDef *heth, ETH_TxPacke
     /* Set TCP Header length */
     MODIFY_REG(dmatxdesc->DESC3, ETH_DMATXNDESCRF_THL, (pTxConfig->TCPHeaderLen << 19));
     /* Set TCP payload length */
-    MODIFY_REG(dmatxdesc->DESC3, ETH_DMATXNDESCRF_TPL, pTxConfig->PayloadLen);
+    MODIFY_REG(dmatxdesc->DESC3, ETH_DMATXNDESCRF_TPL, pTxConfig->PayloadLen); //pa01 ??PayloadLen
     /* Set TCP Segmentation Enabled bit */
     SET_BIT(dmatxdesc->DESC3, ETH_DMATXNDESCRF_TSE);
   }
   else
   {
-    MODIFY_REG(dmatxdesc->DESC3, ETH_DMATXNDESCRF_FL, pTxConfig->Length);
+    MODIFY_REG(dmatxdesc->DESC3, ETH_DMATXNDESCRF_FL, framelen /*pTxConfig->Length*/);
 
     if(READ_BIT(pTxConfig->Attributes, ETH_TX_PACKETS_FEATURES_CSUM) != 0U)
     {
@@ -879,12 +889,14 @@ static uint32_t ETHx_Prepare_Tx_Descriptors(ETH_HandleTypeDef *heth, ETH_TxPacke
   SET_BIT(dmatxdesc->DESC3, ETH_DMATXNDESCRF_OWN);
 
   /* If source address insertion/replacement is enabled for this packet */
+  //$$$$ BUGBUG revise! OWN bit is already set here! pa01
   if(READ_BIT(pTxConfig->Attributes, ETH_TX_PACKETS_FEATURES_SAIC) != 0U)
   {
     MODIFY_REG(dmatxdesc->DESC3, ETH_DMATXNDESCRF_SAIC, pTxConfig->SrcAddrCtrl);
   }
 
   /* only if the packet is split into more than one descriptors > 1 */
+  //$$$$ BUGBUG revise! OWN bit is already set here! pa01
   while (txbuffer->next != NULL)
   {
     /* Clear the LD bit of previous descriptor */
@@ -904,6 +916,7 @@ static uint32_t ETHx_Prepare_Tx_Descriptors(ETH_HandleTypeDef *heth, ETH_TxPacke
       dmatxdesc = (ETH_DMADescTypeDef *)dmatxdesclist->TxDesc[descidx];
 
       /* clear previous desc own bit */
+      //$$$$ BUGBUG too late! pa01
       for(idx = 0; idx < descnbr; idx ++)
       {
         CLEAR_BIT(dmatxdesc->DESC3, ETH_DMATXNDESCRF_OWN);
@@ -926,6 +939,7 @@ static uint32_t ETHx_Prepare_Tx_Descriptors(ETH_HandleTypeDef *heth, ETH_TxPacke
     WRITE_REG(dmatxdesc->DESC0, (uint32_t)txbuffer->buffer);
     /* Set header or buffer 1 Length */
     MODIFY_REG(dmatxdesc->DESC2, ETH_DMATXNDESCRF_B1L, txbuffer->len);
+    framelen += txbuffer->len;
 
     if (txbuffer->next != NULL)
     {
@@ -935,6 +949,7 @@ static uint32_t ETHx_Prepare_Tx_Descriptors(ETH_HandleTypeDef *heth, ETH_TxPacke
       WRITE_REG(dmatxdesc->DESC1, (uint32_t)txbuffer->buffer);
       /* Set buffer 2 Length */
       MODIFY_REG(dmatxdesc->DESC2, ETH_DMATXNDESCRF_B2L, (txbuffer->len << 16));
+      framelen += txbuffer->len;
     }
     else
     {
@@ -946,14 +961,14 @@ static uint32_t ETHx_Prepare_Tx_Descriptors(ETH_HandleTypeDef *heth, ETH_TxPacke
     if(READ_BIT(pTxConfig->Attributes, ETH_TX_PACKETS_FEATURES_TSO) != 0U)
     {
       /* Set TCP payload length */
-      MODIFY_REG(dmatxdesc->DESC3, ETH_DMATXNDESCRF_TPL, pTxConfig->PayloadLen);
+      MODIFY_REG(dmatxdesc->DESC3, ETH_DMATXNDESCRF_TPL, pTxConfig->PayloadLen); //pa01 ??PayloadLen
       /* Set TCP Segmentation Enabled bit */
       SET_BIT(dmatxdesc->DESC3, ETH_DMATXNDESCRF_TSE);
     }
     else
     {
       /* Set the packet length */
-      MODIFY_REG(dmatxdesc->DESC3, ETH_DMATXNDESCRF_FL, pTxConfig->Length);
+      MODIFY_REG(dmatxdesc->DESC3, ETH_DMATXNDESCRF_FL, framelen /*pTxConfig->Length*/);
 
       if(READ_BIT(pTxConfig->Attributes, ETH_TX_PACKETS_FEATURES_CSUM) != 0U)
       {
