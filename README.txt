@@ -1,4 +1,11 @@
-STM32H7 Ethernet driver REWORK WIP
+STM32H7 Ethernet driver split POC
+Example how the H7 ETH driver separation to "core" and "middleware" may look
+
+Based on ST Cube library examples with LwIP
+
+WIP
+
+
 *************
 * stm32h7xx_eth_conf.h is a new config file that replaces ethernet section in stm32h7xx_hal_conf.h
 * stm32h7xx_hal_eth.c renamed to stm32h7xx_eth.c , all descriptor related code moved out
@@ -9,7 +16,7 @@ STM32H7 Ethernet driver REWORK WIP
 
 The "middleware" layers should be different and specific for each network stack such as LwIP, FreeRTOS+ etc.
 
-Size of descriptors (extra filelds) is defined by the "middleware" layer, fixed at compile time.
+Size of DMA descriptors (extra filelds) is defined by the "middleware" layer, fixed at compile time.
 This is defined as ETH_DESC_EXTRA_SIZE in stm32h7xx_eth_conf.h
 (cannot move this definition to stm32h7xx_eth_MW.h as it is needed in stm32h7xx_hal_eth.c).
 This extra size could be made variable and defined in runtime as well, but this would make the code more complex;
